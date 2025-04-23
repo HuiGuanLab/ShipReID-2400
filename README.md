@@ -27,27 +27,7 @@ pip install -r requirements.txt
 
 ## Dataset
 
-You can download the ShipReID-2400 dataset from **[Google Drive](https://drive.google.com/file/d/1OTGK09zo5RKuoGSL-s58e7UzJzIWy7nP/view?usp=sharing)**. The directory structure of the dataset is as follows.
-
-```text
-├── ShipReID-2400
-  ├── bounding_box_test
-  	├── 0002_c001_01_O_20221023_08_15_03_609375.jpg
-  	├── 0002_c001_02_T_20221023_08_15_02_296875.jpg
-  	├── ...
-  ├── bounding_box_train
-  	├── 0000_c002_01_T_20220105_11_04_07_484171.jpg
-  	├── 0000_c005_01_T_20220211_12_14_53_760375.jpg
-  	├── ...
-  ├── test_query
-  	├── 0002_c001_01_O_20221023_08_15_03_609375.jpg
-  	├── 0002_c003_01_O_20210624_23_07_45_611000.jpg
-  	├── ...
-  ├── val_query
-  	├── 0020_c001_01_O_20220321_23_55_36_902558.jpg
-  	├── 0020_c003_03_T_20210531_18_59_21_660058.jpg
-  	├── ...
-```
+Coming soon......
 
 ## Code Structure
 
