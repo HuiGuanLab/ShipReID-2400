@@ -27,7 +27,7 @@ pip install -r requirements.txt
 
 ## Dataset
 
-Before formally accessing the dataset, applicants must sign a dataset license agreement [downloadable from this GitHub directory](./ShipReID-2400 Dataset License Agreement.pdf). Please print the license agreement, hand-sign it, scan the signed document, and email it to us from ***your official institutional email address*** to apply for dataset access (mailto: liubaolongx@gmail.com or dongjf24@gmail.com). Upon receiving your signed license agreement, we will provide you with the dataset download link.
+Before formally accessing the dataset, applicants must sign a dataset license agreement ([downloadable from here](URL "https://github.com/HuiGuanLab/ShipReID-2400/blob/main/ShipReID-2400%20Dataset%20License%20Agreement.pdf")). Please print the license agreement, hand-sign it, scan the signed document, and email it to us from ***your official institutional email address*** to apply for dataset access (mailto: liubaolongx@gmail.com or dongjf24@gmail.com). Upon receiving your signed license agreement, we will provide you with the dataset download link.
 
 ## Code Structure
 
