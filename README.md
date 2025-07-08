@@ -29,6 +29,44 @@ pip install -r requirements.txt
 
 Before formally accessing the dataset, applicants must sign a [dataset license agreement](./ShipReID-2400_Dataset_License_Agreement.pdf). Please print the license agreement, hand-sign it, scan the signed document, and email it to us from ***your official institutional email address*** to apply for dataset access (mailto: liubaolongx@gmail.com or dongjf24@gmail.com). Upon receiving your signed license agreement, we will provide you with the dataset download link.
 
+### Image Naming Convention
+
+`shipId_camId_idx_imgName`
+
+e.g.: `2106_c003_01_T_20180703_15_38_50_734375.jpg`
+
+| shipId | camId | Idx  |                   imgName                   |
+| :----: | :---: | :--: | :-----------------------------------------: |
+|  2106  | c003  |  01  |       T_20180703_15_38_50_734375.jpg        |
+
+**shipId**: Assigned based on ship license plate. Different plates correspond to different shipIds. Range: `0 <= shipId < 2400`  
+**camId**: Assigned based on camera location. Different locations correspond to different camIds. Range: `1 <= camId <= 8`  
+**Idx**: Sequence number for images of the same shipId at the same camId. Example: The first image of shipId 2106 at location c003 is "01"  
+**imgName**: Original image filename containing the image capture time  
+
+### Dataset Partition
+
+The 2400 ship IDs are randomly shuffled and split into **train**, **validation**, and **test** sets in a **0.75:0.125:0.125** ratio:  
+- Randomly select **1800 IDs** → **Training Set**  
+- Randomly select **300 IDs** → **Validation Set**  
+- Randomly select **300 IDs** → **Test Set**  
+
+Sets are **mutually exclusive**. During training:  
+- Only the training set is used for weight updates  
+- Validation and test sets are **solely for accuracy evaluation** (no impact on training)  
+
+According to the re-identification task definition, both validation and test sets require corresponding **query sets**:  
+- Query images are selected as **one image per ID per camera** to simulate real-world query scenarios  
+- Validation query set: 691 images (300 IDs)  
+- Test query set: 706 images (300 IDs)  
+
+| Set                            | # ID | # Images |
+| :----------------------------- | :--: | :------: |
+| `bounding_box_train` (Train)   | 1800 | 12,988   |
+| `val_query` (Validation Query) | 300  | 691      |
+| `test_query` (Test Query)      | 300  | 70       |
+| `bounding_box_test` (Gallery)  | 600  | 4,253    |
+
 ## Code Structure
 
 Our code structure is as follows.
