@@ -27,7 +27,7 @@ pip install -r requirements.txt
 
 ## Dataset
 
-Before formally accessing the dataset, applicants must sign a [dataset license agreement](./ShipReID-2400_Dataset_License_Agreement.pdf)(中国境内的申请者请签署和发送[中文版数据集版权协议](./ShipReID-2400数据集许可协议.pdf)) Please print the license agreement, hand-sign it, scan the signed document, and email it to us from ***your official institutional email address*** to apply for dataset access (mailto: liubaolongx@gmail.com or dongjf24@gmail.com). Upon receiving your signed license agreement, we will provide you with the dataset download link.
+Before formally accessing the dataset, applicants must sign a [dataset license agreement](./ShipReID-2400_Dataset_License_Agreement.pdf)(中国境内的申请者请签署和发送[中文版数据集版权协议](./ShipReID-2400数据集许可协议.pdf)). Please print the license agreement, hand-sign it, scan the signed document, and email it to us from ***your official institutional email address*** to apply for dataset access (mailto: liubaolongx@gmail.com or dongjf24@gmail.com). Upon receiving your signed license agreement, we will provide you with the dataset download link.
 
 ### Image Naming Convention
 
