@@ -22,7 +22,6 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = True
 
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser(description="ReID Baseline Training")
     parser.add_argument(
         "--config_file", default="configs/person/vit_base.yml", help="path to config file", type=str
@@ -66,7 +65,7 @@ if __name__ == '__main__':
 
     model = make_model(cfg, num_class=num_classes, camera_num=camera_num, view_num = view_num)
 
-    loss_func, center_criterion = make_loss(cfg, num_classes=num_classes)
+    loss_func, center_criterion = make_loss(cfg, num_classes=num_classes, model=model)
 
     optimizer, optimizer_center = make_optimizer(cfg, model, center_criterion)
 

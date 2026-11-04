@@ -7,8 +7,10 @@ MODEL:
   STRIDE_SIZE: [16, 16]
   ID_LOSS_WEIGHT : 0.5
   PART_ID_LOSS_WEIGHT : 0.5
-  TRIPLET_LOSS_WEIGHT : 1.0
-  PART_TRIPLET_LOSS_WEIGHT : 1.0
+  TRIPLET_LOSS_WEIGHT : 5.0
+  PART_TRIPLET_LOSS_WEIGHT : 5.0
+  TOP_K : 1.0
+  text: 1.0
   # SIE_CAMERA: True
   # SIE_COE : 1.0
   
@@ -27,7 +29,7 @@ DATALOADER:
   NUM_WORKERS: 8
 
 SOLVER:
-  IMS_PER_BATCH: 6
+  IMS_PER_BATCH: 48
   OPTIMIZER_NAME: "Adam"
   BASE_LR: 0.0000275
   WARMUP_METHOD: 'linear'
@@ -55,7 +57,7 @@ TEST:
 
 DATASETS:
   NAMES: ('ShipReID2400')
-  ROOT_DIR: ('/media/data1/hrk/code/reid/datasets/ship')
+  ROOT_DIR: ('/media/disk2/wtz/Datasets/ship')
 OUTPUT_DIR: './logs/'
 
 #   NAMES: ('dukemtmc')

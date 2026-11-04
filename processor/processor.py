@@ -10,6 +10,7 @@ import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import os.path as osp
+from scipy.optimize import linear_sum_assignment
 
 
 def do_train(cfg,
@@ -50,6 +51,7 @@ def do_train(cfg,
     part_id_loss_meter = AverageMeter()
     tri_loss_meter = AverageMeter()
     part_tri_loss_meter = AverageMeter()
+    part_token_assignment_loss = AverageMeter()
     acc_meter = AverageMeter()
 
     evaluator = R1_mAP_eval(num_val_query, max_rank=50, feat_norm=cfg.TEST.FEAT_NORM)
@@ -73,13 +75,15 @@ def do_train(cfg,
         acc_meter.reset()
         evaluator.reset()
         test_evaluator.reset()
+        part_token_assignment_loss.reset()
 
         scheduler.step()
         model.train()
 
-        for n_iter, (img, vid, target_cam, target_view) in enumerate(train_loader):
+        for n_iter, (img, texts_list, vid, target_cam, target_view) in enumerate(train_loader):
             optimizer.zero_grad()
             optimizer_center.zero_grad()
+            # edit by wtz
             img = img.to(device)
             target = vid.to(device)
             if cfg.MODEL.SIE_CAMERA:
@@ -91,8 +95,8 @@ def do_train(cfg,
             else: 
                 target_view = None
             with amp.autocast(enabled=True):
-                score, part_score, feat, part_feat, part_features = model(img, cam_label=target_cam, view_label=target_view)
-                loss, (ID_LOSS, PART_ID_LOSS, TRI_LOSS, PART_TRI_LOSS, TOKEN_CONTRAST_LOSS) = loss_fn(score, part_score, feat, part_feat, part_features, target, target_cam, M=M)
+                score, part_score, feat, part_feat_left, part_feat_right, part_features,text_feat, text_mask = model(img, texts_list, cam_label=target_cam, view_label=target_view)
+                loss, (ID_LOSS, PART_ID_LOSS, TRI_LOSS, PART_TRI_LOSS, TOKEN_CONTRAST_LOSS, PART_TOKEN_ASSIGNMENT_LOSS) = loss_fn(score, part_score, feat, part_feat_left, part_feat_right, part_features,text_feat, text_mask, target, target_cam, epoch, M=M)
 
             scaler.scale(loss).backward()
 
@@ -109,12 +113,13 @@ def do_train(cfg,
             else:
                 acc = (score.max(1)[1] == target).float().mean()
 
-            token_contrast_meter.update(TOKEN_CONTRAST_LOSS.item(), img.shape[0])
-            loss_meter.update(loss.item(), img.shape[0])
-            id_loss_meter.update(ID_LOSS.item(), img.shape[0])
-            part_id_loss_meter.update(PART_ID_LOSS.item(), img.shape[0])
-            tri_loss_meter.update(TRI_LOSS.item(), img.shape[0])
-            part_tri_loss_meter.update(PART_TRI_LOSS.item(), img.shape[0])
+            token_contrast_meter.update(TOKEN_CONTRAST_LOSS.item(), target.shape[0])
+            loss_meter.update(loss.item(), target.shape[0])
+            id_loss_meter.update(ID_LOSS.item(), target.shape[0])
+            part_id_loss_meter.update(PART_ID_LOSS.item(), target.shape[0])
+            tri_loss_meter.update(TRI_LOSS.item(), target.shape[0])
+            part_tri_loss_meter.update(PART_TRI_LOSS.item(), target.shape[0])
+            part_token_assignment_loss.update(PART_TOKEN_ASSIGNMENT_LOSS.item(), target.shape[0])
             acc_meter.update(acc, 1)
 
             torch.cuda.synchronize()
@@ -132,6 +137,7 @@ def do_train(cfg,
         writer.add_scalar('loss/PART_ID_LOSS', part_id_loss_meter.avg, global_step=epoch)
         writer.add_scalar('loss/TRI_LOSS', tri_loss_meter.avg, global_step=epoch)
         writer.add_scalar('loss/PART_TRI_LOSS', part_tri_loss_meter.avg, global_step=epoch)
+        writer.add_scalar('loss/PART_TOK_ASSIGN_LOSS', part_token_assignment_loss.avg, global_step=epoch)
 
 
         if cfg.MODEL.DIST_TRAIN:
@@ -152,7 +158,7 @@ def do_train(cfg,
                 pass
             else:
                 model.eval()
-                for n_iter, (img, vid, camid, camids, target_view, _) in enumerate(val_loader):
+                for n_iter, (img, texts_list, vid, camid, camids, target_view, _) in enumerate(val_loader):
                     with torch.no_grad():
                         img = img.to(device)
                         if cfg.MODEL.SIE_CAMERA:
@@ -163,7 +169,7 @@ def do_train(cfg,
                             target_view = target_view.to(device)
                         else: 
                             target_view = None
-                        feat, part_feat, two_feat = model(img, cam_label=camids, view_label=target_view)
+                        feat, part_feat, two_feat,_ = model(img, texts_list, cam_label=camids, view_label=target_view)
                         evaluator.update((feat, part_feat, two_feat, vid, camid))
                 global_cmc, global_mAP, part_cmc, part_mAP, two_cmc, two_mAP, _, _, _, _, _ = evaluator.compute()
                 logger.info("Val Global Branch Results ")
@@ -179,7 +185,7 @@ def do_train(cfg,
                 for r in [1, 5, 10]:
                     logger.info("CMC curve, Rank-{:<3}:{:.1%}".format(r, two_cmc[r - 1]))                          
 
-                for n_iter, (img, vid, camid, camids, target_view, _) in enumerate(test_loader):
+                for n_iter, (img, texts_list, vid, camid, camids, target_view, _) in enumerate(test_loader):
                     with torch.no_grad():
                         img = img.to(device)
                         if cfg.MODEL.SIE_CAMERA:
@@ -190,7 +196,7 @@ def do_train(cfg,
                             target_view = target_view.to(device)
                         else: 
                             target_view = None
-                        feat, part_feat, two_feat = model(img, cam_label=camids, view_label=target_view)
+                        feat, part_feat, two_feat,_ = model(img, texts_list, cam_label=camids, view_label=target_view)
                         test_evaluator.update((feat, part_feat, two_feat, vid, camid))
                 global_cmc, global_mAP, part_cmc, part_mAP, two_cmc, two_mAP, _, _, _, _, _ = test_evaluator.compute()
                 logger.info("Test Global Branch Results ")
@@ -247,7 +253,11 @@ def do_inference(cfg,
                 target_view = target_view.to(device)
             else: 
                 target_view = None
-            feat, part_feat, two_feat = model(img, cam_label=camids, view_label=target_view)
+            # edit by wtz
+            feat, part_feat, two_feat, part_features = model(img, cam_label=camids, view_label=target_view)
+            # dist_mat = euclidean_dist(part_features.view(-1, part_features.size(-1)), part_features.view(-1, part_features.size(-1)))
+            # part_features = get_part_features(dist_mat, part_features, torch.tensor(vid))
+            # two_feat = feat + part_features
             evaluator.update((feat, part_feat, two_feat, vid, camid))
     global_cmc, global_mAP, part_cmc, part_mAP, two_cmc, two_mAP, _, _, _, _, _ = evaluator.compute()
     logger.info("Val Global Branch Results ")
@@ -276,7 +286,11 @@ def do_inference(cfg,
                 target_view = target_view.to(device)
             else: 
                 target_view = None
-            feat, part_feat, two_feat = model(img, cam_label=camids, view_label=target_view)
+            # edit by wtz
+            feat, part_feat, two_feat, part_features = model(img, cam_label=camids, view_label=target_view)
+            # dist_mat = euclidean_dist(part_features.view(-1, part_features.size(-1)), part_features.view(-1, part_features.size(-1)))
+            # part_features = get_part_features(dist_mat, part_features, torch.tensor(vid))
+            # two_feat = feat + part_features
             test_evaluator.update((feat, part_feat, two_feat, vid, camid))
         img_path_list.extend(_)
 
@@ -299,3 +313,49 @@ def do_inference(cfg,
     for r in [1, 5, 10]:
         logger.info("CMC curve, Rank-{:<3}:{:.1%}".format(r, two_cmc[r - 1]))                          
     return global_cmc[0], global_cmc[4]
+
+# edit by wtz
+def euclidean_dist(x, y):
+    m, n = x.size(0), y.size(0)
+    xx = torch.pow(x, 2).sum(1, keepdim=True).expand(m, n) #B, B
+    yy = torch.pow(y, 2).sum(1, keepdim=True).expand(n, m).t()
+    dist = xx + yy
+    dist = dist - 2 * torch.matmul(x, y.t())
+    # dist.addmm_(1, -2, x, y.t())
+    dist = dist.clamp(min=1e-12).sqrt()  # for numerical stability
+    return dist
+
+def get_part_features(dist_mat, part_features, labels):
+    B, P, D = part_features.shape  # B=48, P=4, D=1280
+    result = torch.zeros(B, P, device=part_features.device)
+
+    for i in range(B):
+        indices = torch.arange(i * P, (i + 1) * P) # 当前小块在192中的索引
+
+        # 找到同类的所有 index（包括自己）
+        same_class_indices = (labels == labels[i]).nonzero(as_tuple=True)[0]
+        same_class_indices = same_class_indices.repeat_interleave(P) * P + torch.arange(P).repeat(len(same_class_indices)).to(labels.device)
+        dist = dist_mat[indices]  # shape [4, 192] → 只保留指定行
+        dist = dist[:, same_class_indices]  # shape [4, 12] → 只保留指定列
+
+        for j in range(int(dist.shape[1]/P)):
+            # 取出第 i 个 4x4 块
+            block = dist[:, j * P:(j + 1) * P]  # shape [4, 4]
+            # 转 numpy
+            block = block.detach().cpu().numpy()
+            # 匈牙利匹配
+            row_ind, col_ind = linear_sum_assignment(block)
+            row = torch.tensor(block[row_ind, col_ind], device=dist_mat.device)
+            # 累加匹配代价
+            result[i] = result[i] + row
+    K=2
+    _, idx = torch.topk(-result, k=K, dim=1)
+    # 创建 mask
+    mask = torch.zeros_like(result, dtype=torch.bool)
+    mask.scatter_(1, idx, True)
+    part_features = part_features[mask]
+    part_features = part_features.view(B, K, D)  # [48, 2, 1280]
+    # 取每组平均：
+    part_features = part_features.mean(dim=1)
+
+    return part_features

@@ -1,122 +1,192 @@
-# Advancing Ship Re-Identification in the Wild: The ShipReID-2400 Benchmark Dataset and D2InterNet Baseline Method
+<div align="center">
 
-## Abstract
+# ShipReID-2400 & D2InterNet++
 
-Ship Re-Identification (ReID) aims to accurately identify ships with the same identity across different times and camera views, playing a crucial role in intelligent waterway transportation. Compared to the widely researched pedestrian and vehicle ReID, Ship ReID has received much less attention, primarily due to the scarcity of largescale, high-quality ship ReID datasets available for public access. Also, capturing an entire ship can be challenging due to their large size. The visible area of ships is also dynamic, often changing significantly because of variations in cargo loading or water waves. The unique challenges faced by ships make it difficult to achieve ideal results by directly applying existing ReID methods. To address these challenges, in this paper, we introduce **ShipReID-2400**, a dataset for ship ReID compiled from a real-world intelligent waterway traffic monitoring system. It comprises 17,241 images of 2,400 distinct ship identities collected over 53 months, ensuring diversity and representativeness. Then, we propose a feature Disentangle-to-Interact Network (**D2InterNet**) for ship ReID, designed to extract discriminative local features despite significant scale variations. Given that distinctive local details are often tiny compared to the larger, less distinctive areas of ships, D2InterNet first employs a dual-branch architecture to separately focus on global and local features. Moreover, we introduce a Part-aware Feature Perception Module (PFPM) to enhance the extraction of local features, along with a Feature Interaction Module (FIM) and a Collaborative Interaction Learning Module (CILM) to effectively interact and integrate global and local features across different scales. Extensive experimental results show that D2InterNet achieves state-of-the-art ship ReID performance on both the ShipReID-2400 and VesselReID datasets. In addition, despite being designed for ship ReID, D2InterNet demonstrates comparable performance with the best methods on the MSMT17 pedestrian ReID dataset, showcasing its good generalization capability.
+### Current code and dataset supplement for HuiGuanLab/ShipReID-2400
 
-![eg](https://github.com/HuiGuanLab/ShipReID-2400/blob/main/fig/eg.jpg)
+[![Python](https://img.shields.io/badge/Python-3.8-3776AB?logo=python&logoColor=white)](#installation)
+[![PyTorch](https://img.shields.io/badge/PyTorch-1.9.1-EE4C2C?logo=pytorch&logoColor=white)](#installation)
+[![Dataset](https://img.shields.io/badge/Dataset-Baidu_Netdisk-2932E1)](https://pan.baidu.com/s/1E7yLizsIv0E8SVgn45IWpQ?pwd=kfbn)
 
-**Examples of ships from our ShipReID-2400 (images in each column are captures of the same ship identity from different cameras). As can be seen, we not only ensure that the captured images are of high quality but also obtain images of the same ship at different locations, angles, times, and weather conditions. For ease of presentation, the images here are scaled.**
+[Overview](#overview) · [Dataset](#dataset) · [Installation](#installation) · [Training](#training) · [Evaluation](#evaluation) · [Results](#results) · [Citation](#citation)
 
-## Pipeline
+</div>
 
-![baseline](https://github.com/HuiGuanLab/ShipReID-2400/blob/main/fig/baseline.jpg)
+This branch extends the original [ShipReID-2400 / D2InterNet project](https://github.com/HuiGuanLab/ShipReID-2400), **“Advancing Ship Re-Identification in the Wild: The ShipReID-2400 Benchmark Dataset and D2InterNet Baseline Method.”** It imports the current **D2InterNet++ research snapshot** from `ShipReID-2400-6257`, including auxiliary text-supervision code and dataset documentation.
 
-**The overall architecture of our proposed D2InterNet. To address significant scale variation and extract discriminative local features for ship ReID, D2InterNet first uses a dual-branch architecture to independently focus on global and local features, enhanced by a Part-aware Feature Perception Module (PFPM) for better local feature capture. We then introduce Feature Interaction Modules (FIM) and Collaborative Interaction Learning Module (CILM) to interact and integrate features across scales. D2InterNet enables flexible dual-branch training and single-branch testing without additional computational overhead.**
+The original baseline instructions are preserved in [the baseline README](docs/baseline-readme.md). This branch's implementation and reported extension results should be distinguished from the original D2InterNet baseline.
 
-## Installation
+> **Release status:** this is a research snapshot. Generated per-image captions are not yet connected to the data loader, the validation/test loaders share a gallery, and standalone evaluation needs an update. See [reproducibility notes](docs/reproducibility.md) for details. The reported paper results have not been independently reproduced from this checkout.
 
-Our code operates in an environment with Python 3.8 and Torch 1.9.1, you can use the following code for installation. Please ensure to select the appropriate CUDA version.
+## Overview
 
-```shell
-conda create -n shipreid python=3.8
-conda activate shipreid
-pip install torch==1.9.1+cu111 torchvision==0.10.1+cu111 -f https://download.pytorch.org/whl/torch_stable.html
-pip install -r requirements.txt
-```
+Ship re-identification matches the same vessel across cameras and time periods. Changes in scale, viewpoint, cargo, water level and partial visibility make this task challenging.
+
+D2InterNet++ combines a **global visual branch** and a **local part-aware branch**, with a Part-Aware Feature Perception Module (PFPM), Feature Interaction Module (FIM), and Collaborative Interaction Learning Module (CILM). The implementation also includes a frozen CLIP text encoder for auxiliary image-text supervision during training.
+
+<p align="center">
+  <img src="fig/baseline.jpg" alt="Visual architecture: global and local branches, PFPM, FIM and CILM" width="100%">
+</p>
+
+*Visual branch architecture supplied with the project. The auxiliary text branch is not shown in this figure.*
 
 ## Dataset
 
-Before formally accessing the dataset, applicants must sign a [dataset license agreement](./ShipReID-2400_Dataset_License_Agreement.pdf)(中国境内的申请者请签署和发送[中文版数据集版权协议](./ShipReID-2400数据集许可协议.pdf)). 
+**ShipReID-2400** is a ship re-identification dataset collected from a real-world waterway monitoring system.
 
-Please print the license agreement, hand-sign it, scan the signed document, and email it to us from ***your official institutional email address*** to apply for dataset access (mailto: liubaolongx@gmail.com or dongjf24@gmail.com). 
+| Property | Reported value |
+| :--- | :--- |
+| Ship identities | 2,400 |
+| Images | 17,241 |
+| Cameras | 8 |
+| Collection period | 53 months |
 
-Since our data is stored on Google Drive, you will first need to register for a Google Drive account. 
+Image totals and query/gallery overlap require clarification; see [dataset split accounting](docs/reproducibility.md#dataset-split-accounting).
 
-Then, please send the dataset license agreement along with ***your Google Drive account details*** to us via the application email. Upon approval of the license agreement, we will grant your account access to the dataset.
+<p align="center">
+  <img src="fig/eg.jpg" alt="Ship image examples across viewpoints and observation conditions" width="100%">
+</p>
 
-### Image Naming Convention
+### Access and download
 
-`shipId_camId_idx_imgName`
+The original project's dataset access requirements continue to apply. Before accessing the dataset, print and hand-sign the [English license agreement](ShipReID-2400_Dataset_License_Agreement.pdf) or [中文数据集许可协议](ShipReID-2400数据集许可协议.pdf), scan it, and send it from your official institutional email address to [liubaolongx@gmail.com](mailto:liubaolongx@gmail.com) or [dongjf24@gmail.com](mailto:dongjf24@gmail.com). Access is subject to approval.
 
-e.g.: `2106_c003_01_T_20180703_15_38_50_734375.jpg`
+For approved applicants, the additional download location supplied for this branch is:
 
-| shipId | camId | Idx  |                   imgName                   |
-| :----: | :---: | :--: | :-----------------------------------------: |
-|  2106  | c003  |  01  |       T_20180703_15_38_50_734375.jpg        |
+| Dataset | Download | Extraction code / 提取码 |
+| :--- | :--- | :---: |
+| ShipReID-2400 | [Baidu Netdisk / 百度网盘](https://pan.baidu.com/s/1E7yLizsIv0E8SVgn45IWpQ?pwd=kfbn) | **`kfbn`** |
 
-**shipId**: Assigned based on ship license plate. Different plates correspond to different shipIds. Range: `0 <= shipId < 2400`  
-**camId**: Assigned based on camera location. Different locations correspond to different camIds. Range: `1 <= camId <= 8`  
-**Idx**: Sequence number for images of the same shipId at the same camId. Example: The first image of shipId 2106 at location c003 is "01"  
-**imgName**: Original image filename containing the image capture time  
+The download link does not replace the application process or license requirements. For the original Google Drive access route, include your Google Drive account details in your application email. See [dataset access and preparation](docs/dataset.md).
 
-### Dataset Partition
+The dataset is distributed separately from the source code. Download and extract it under your dataset root. The loader expects the directory name **`ShipReID2400`**:
 
-The 2400 ship IDs are randomly shuffled and split into **train**, **validation**, and **test** sets in a **0.75:0.125:0.125** ratio:  
-- Randomly select **1800 IDs** → **Training Set**  
-- Randomly select **300 IDs** → **Validation Set**  
-- Randomly select **300 IDs** → **Test Set**  
-
-Sets are **mutually exclusive**. During training:  
-- Only the training set is used for weight updates  
-- Validation and test sets are **solely for accuracy evaluation** (no impact on training)  
-
-According to the re-identification task definition, both validation and test sets require corresponding **query sets**:  
-- Query images are selected as **one image per ID per camera** to simulate real-world query scenarios  
-- Validation query set: 691 images (300 IDs)  
-- Test query set: 706 images (300 IDs)  
-
-| Set                            | # ID | # Images |
-| :----------------------------- | :--: | :------: |
-| `bounding_box_train` (Train)   | 1800 | 12,988   |
-| `val_query` (Validation Query) | 300  | 691      |
-| `test_query` (Test Query)      | 300  | 706       |
-| `bounding_box_test` (Gallery)  | 600  | 4,253    |
-
-## Code Structure
-
-Our code structure is as follows.
-
-```shell
-ShipReID-2400
-├── config     # Initial configuration file definitions
-├── configs    # Configuration file directory, storing YML configuration files
-├── datasets   # Dataset loading and processing module
-├── exp        # Experiment-related files
-├── fig        # Figures
-├── loss       # Loss function definitions
-├── model      # Model definitions and implementations
-├── processor  # Training and testing code processors
-├── solver     # Optimizers and learning rate schedulers
-├── utils      # Utility functions and tools
-├── test.py    # Test code
-└── train.py   # Train code
+```text
+<DATASETS.ROOT_DIR>/ShipReID2400/
+├── bounding_box_train/
+├── bounding_box_test/
+├── val_query/
+├── test_query/
+├── bounding_box_train.jsonl
+├── val_query.jsonl
+├── val_gallery.jsonl
+├── test_query.jsonl
+└── test_gallery.jsonl
 ```
+
+This tree describes the current loader's expected inputs. See [dataset and annotation format](docs/data-format.md) for filenames, JSONL structure and path matching requirements.
+
+## Installation
+
+The environment recorded by the project is **Python 3.8, PyTorch 1.9.1 and CUDA 11.1**. An NVIDIA CUDA device is required by the current code.
+
+```bash
+git clone --branch shipreid-current-code-dataset https://github.com/HuiGuanLab/ShipReID-2400.git
+cd ShipReID-2400
+
+conda create -n shipreid python=3.8
+conda activate shipreid
+pip install torch==1.9.1+cu111 torchvision==0.10.1+cu111 \
+  -f https://download.pytorch.org/whl/torch_stable.html
+pip install -r requirements.txt
+```
+
+The CLIP ViT-B/16 weights are downloaded automatically on first use. Task-specific trained checkpoints are not included in this repository.
 
 ## Training
 
-You can use the following code for training. Please note that **PART_H** and **PART_W** represent the height and width of the local region, and **PART_RATIO** denotes the percentage retained by the FIM module. Ensure that **DATASETS.ROOT_DIR** is replaced with the path to your dataset.
+Run commands from the repository root. Replace the dataset and output paths with absolute paths on your machine.
 
-```shell
-# bash exp/train.sh
-
-CUDA_VISIBLE_DEVICES=2 python ../train.py --config_file ../configs/ship/vit_base.yml \
-SOLVER.EVAL_PERIOD 20 SOLVER.IMS_PER_BATCH 48 SOLVER.MAX_EPOCHS 200 \
-OUTPUT_DIR ./logs/ DATASETS.NAMES "('ShipReID2400')" \
-MODEL.PART_H 16 MODEL.PART_W 4 MODEL.ID_LOSS_WEIGHT 0.5 MODEL.TRIPLET_LOSS_WEIGHT 5.0 \
-MODEL.PART_ID_LOSS_WEIGHT 0.5 MODEL.PART_TRIPLET_LOSS_WEIGHT 5.0 MODEL.TOKEN_CONTRAST_LOSS_WEIGHT 10.0 \
-MODEL.PART_RATIO 0.6 MODEL.TOKEN_CONTRAST_TYPE 'triplet' SOLVER.TOKEN_MARGIN 0.3
+```bash
+CUDA_VISIBLE_DEVICES=0 python train.py \
+  --config_file configs/ship/vit_base.yml \
+  DATASETS.ROOT_DIR /absolute/path/to/datasets \
+  DATASETS.NAMES ShipReID2400 \
+  OUTPUT_DIR outputs/d2internetpp \
+  SOLVER.IMS_PER_BATCH 48 \
+  SOLVER.MAX_EPOCHS 300 \
+  MODEL.PART_H 16 \
+  MODEL.PART_W 4 \
+  MODEL.ID_LOSS_WEIGHT 0.5 \
+  MODEL.TRIPLET_LOSS_WEIGHT 5.0 \
+  MODEL.PART_ID_LOSS_WEIGHT 0.5 \
+  MODEL.PART_TRIPLET_LOSS_WEIGHT 5.0 \
+  MODEL.TOKEN_CONTRAST_LOSS_WEIGHT 10.0 \
+  MODEL.PART_RATIO 0.6 \
+  MODEL.TOP_K 1.0 \
+  MODEL.TOKEN_CONTRAST_TYPE triplet \
+  MODEL.NO_TOKEN_MARGIN False \
+  MODEL.text 0.4 \
+  SOLVER.TOKEN_MARGIN 0.3
 ```
+
+This command follows the current code snapshot. It is not a verified reproduction recipe for the manuscript. See [configuration differences](docs/reproducibility.md#configuration-differences) before comparing results. Validation/test metrics and checkpoints are written according to `SOLVER.EVAL_PERIOD` and `SOLVER.CHECKPOINT_PERIOD`.
 
 ## Evaluation
 
-You can use the following code for evaluation. Please note that **PART_H** and **PART_W** should correspond to those used during training, and **TEST.WEIGHT** is the path where the weights are stored.
+**Current limitation:** the standalone inference loop needs a batch-format update before the following command can be used. See [reproducibility notes](docs/reproducibility.md).
 
-```shell
-# bash exp/test.sh
+The intended evaluation command is:
 
-CUDA_VISIBLE_DEVICES=2 python ../test.py --config_file ../configs/ship/vit_base.yml \
-OUTPUT_DIR ./logs/ DATASETS.NAMES "('ShipReID2400')" \
-MODEL.PART_H 16 MODEL.PART_W 4 \
-TEST.WEIGHT 'path_to_test_weight'
+```bash
+CUDA_VISIBLE_DEVICES=0 python test.py \
+  --config_file configs/ship/vit_base.yml \
+  DATASETS.ROOT_DIR /absolute/path/to/datasets \
+  DATASETS.NAMES ShipReID2400 \
+  OUTPUT_DIR outputs/d2internetpp_eval \
+  MODEL.PART_H 16 \
+  MODEL.PART_W 4 \
+  TEST.WEIGHT /absolute/path/to/checkpoint.pth
 ```
+
+Before using this command, update `processor.do_inference` to unpack the text-aware validation batches returned by `val_collate_fn`. The periodic evaluation path inside `do_train` already accepts this batch format.
+
+Evaluation reports mean Average Precision (mAP) and CMC Rank-1/5/10 after removing gallery samples with the same identity and camera as each query.
+
+## Results
+
+The following extension results are carried over from the `ShipReID-2400-6257` project documentation. They are **not** the original D2InterNet baseline results and have **not** been independently reproduced from this branch.
+
+| Configuration | ShipReID-2400 mAP | Rank-1 |
+|---|---:|---:|
+| D2InterNet++ visual model | 44.0 | 51.0 |
+| D2InterNet++ with generated-caption supervision | 44.9 | 52.4 |
+
+## Repository structure
+
+```text
+├── config/                    # Default configuration definitions
+├── configs/ship/              # ShipReID experiment configuration
+├── datasets/                  # Dataset adapters, transforms and samplers
+├── docs/                      # Dataset, baseline and reproducibility documentation
+├── exp/                       # Legacy experiment shell scripts
+├── fig/                       # Repository figures
+├── loss/                      # Classification, metric and alignment losses
+├── model/                     # D2InterNet++ and CLIP implementation
+├── processor/                 # Training and inference loops
+├── solver/                    # Optimizers and learning-rate schedulers
+├── utils/ship_text.py         # JSONL loading and prompt serialization
+├── train.py                   # Training entry point
+└── test.py                    # Evaluation entry point
+```
+
+`model/make_model copy.py` is a legacy development copy and is not imported by the training entry point.
+
+Additional documentation:
+
+- [Dataset access and preparation](docs/dataset.md)
+- [Original baseline instructions](docs/baseline-readme.md)
+- [Dataset and text annotation format](docs/data-format.md)
+- [Implementation status and reproducibility notes](docs/reproducibility.md)
+
+## Citation
+
+If you use ShipReID-2400 or this implementation in your research, please cite the associated manuscript. A complete BibTeX entry and paper link will be added when the final author list and publication metadata are available.
+
+## Related projects
+
+Relevant open-source implementations include [CLIP-ReID](https://github.com/Syliz517/CLIP-ReID), [TransReID](https://github.com/damo-cv/TransReID), and [CLIP](https://github.com/openai/CLIP).
+
+## License
+
+Dataset access and use are governed by the existing [English agreement](ShipReID-2400_Dataset_License_Agreement.pdf) and [Chinese agreement](ShipReID-2400数据集许可协议.pdf). Both original files are retained unchanged. A project-wide software license is not included in this checkout; retain and follow any notices supplied with third-party components.

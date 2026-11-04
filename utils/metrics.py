@@ -14,16 +14,17 @@ def euclidean_distance(qf, gf):
     return dist_mat.cpu().numpy()
 
 def cosine_similarity(qf, gf):
-    epsilon = 0.00001
+    # epsilon = 0.00001
     dist_mat = qf.mm(gf.t())
-    qf_norm = torch.norm(qf, p=2, dim=1, keepdim=True)  # mx1
-    gf_norm = torch.norm(gf, p=2, dim=1, keepdim=True)  # nx1
-    qg_normdot = qf_norm.mm(gf_norm.t())
+    # qf_norm = torch.norm(qf, p=2, dim=1, keepdim=True)  # mx1
+    # gf_norm = torch.norm(gf, p=2, dim=1, keepdim=True)  # nx1
+    # qg_normdot = qf_norm.mm(gf_norm.t())
 
-    dist_mat = dist_mat.mul(1 / qg_normdot).cpu().numpy()
-    dist_mat = np.clip(dist_mat, -1 + epsilon, 1 - epsilon)
-    dist_mat = np.arccos(dist_mat)
-    return dist_mat
+    # dist_mat = dist_mat.mul(1 / qg_normdot).cpu().numpy()
+    # dist_mat = np.clip(dist_mat, -1 + epsilon, 1 - epsilon)
+    # dist_mat = np.arccos(dist_mat)
+    dist_mat = 1.0 - dist_mat
+    return dist_mat.cpu()
 
 def get_distance(qf, gf):
     m = qf.shape[1]
@@ -146,7 +147,7 @@ class R1_mAP_eval():
 
         else:
             print('=> Computing DistMat with euclidean_distance')
-            distmat = euclidean_distance(qf, gf)
+            distmat = cosine_similarity(qf, gf)
         global_cmc, global_mAP = eval_func(distmat, q_pids, g_pids, q_camids, g_camids)
 
         # part branch
@@ -159,7 +160,7 @@ class R1_mAP_eval():
             part_distmat = re_ranking(qf, gf, k1=50, k2=15, lambda_value=0.3)
         else:
             print('=> Computing DistMat with euclidean_distance')
-            part_distmat = euclidean_distance(qf, gf)
+            part_distmat = cosine_similarity(qf, gf)
         part_cmc, part_mAP = eval_func(part_distmat, q_pids, g_pids, q_camids, g_camids)
 
         # two branch
@@ -173,6 +174,7 @@ class R1_mAP_eval():
         else:
             print('=> Computing DistMat with euclidean_distance')
             two_distmat = euclidean_distance(qf, gf)
+            # two_distmat = distmat + part_distmat
         two_cmc, two_mAP = eval_func(two_distmat, q_pids, g_pids, q_camids, g_camids)        
 
         if self.cfg is not None and self.cfg.SAVE_NUMPY:

@@ -2,6 +2,7 @@ import torch
 import torchvision.transforms as T
 from torch.utils.data import DataLoader
 
+from utils.ship_text import load_jsonl_mapping
 from .bases import ImageDataset
 from timm.data.random_erasing import RandomErasing
 from .sampler import RandomIdentitySampler
@@ -30,17 +31,17 @@ def train_collate_fn(batch):
     """
     # collate_fn这个函数的输入就是一个list，list的长度是一个batch size，list中的每个元素都是__getitem__得到的结果
     """
-    imgs, pids, camids, viewids , _ = zip(*batch)
+    imgs, texts_list, pids, camids, viewids , _ = zip(*batch)
     pids = torch.tensor(pids, dtype=torch.int64)
     viewids = torch.tensor(viewids, dtype=torch.int64)
     camids = torch.tensor(camids, dtype=torch.int64)
-    return torch.stack(imgs, dim=0), pids, camids, viewids,
+    return torch.stack(imgs, dim=0),list(texts_list), pids, camids, viewids,
 
 def val_collate_fn(batch):
-    imgs, pids, camids, viewids, img_paths = zip(*batch)
+    imgs, texts_list, pids, camids, viewids, img_paths = zip(*batch)
     viewids = torch.tensor(viewids, dtype=torch.int64)
     camids_batch = torch.tensor(camids, dtype=torch.int64)
-    return torch.stack(imgs, dim=0), pids, camids, camids_batch, viewids, img_paths
+    return torch.stack(imgs, dim=0),list(texts_list), pids, camids, camids_batch, viewids, img_paths
 
 def make_dataloader(cfg):
     train_transforms = T.Compose([
@@ -50,7 +51,7 @@ def make_dataloader(cfg):
             T.RandomCrop(cfg.INPUT.SIZE_TRAIN),
             T.ToTensor(),
             T.Normalize(mean=cfg.INPUT.PIXEL_MEAN, std=cfg.INPUT.PIXEL_STD),
-            RandomErasing(probability=cfg.INPUT.RE_PROB, mode='pixel', max_count=1, device='cpu'),
+            # RandomErasing(probability=cfg.INPUT.RE_PROB, mode='pixel', max_count=1, device='cpu'),
             # RandomErasing(probability=cfg.INPUT.RE_PROB, mean=cfg.INPUT.PIXEL_MEAN)
         ])
 
@@ -64,8 +65,28 @@ def make_dataloader(cfg):
 
     dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR, dataset_dir=cfg.DATASETS.NAMES)
     
-    train_set = ImageDataset(dataset.train, train_transforms)
-    train_set_normal = ImageDataset(dataset.train, val_transforms)
+    import os.path as osp
+    # dataset root: /media/disk2/wtz/Datasets/ship/ShipReID2400
+    ds_root = osp.join(cfg.DATASETS.ROOT_DIR, cfg.DATASETS.NAMES)
+
+    train_jsonl = osp.join(ds_root, "bounding_box_train.jsonl")
+    valq_jsonl = osp.join(ds_root, "val_query.jsonl")
+    valg_jsonl = osp.join(ds_root, "val_gallery.jsonl")
+    testq_jsonl = osp.join(ds_root, "test_query.jsonl")
+    testg_jsonl = osp.join(ds_root, "test_gallery.jsonl")
+
+    train_map = load_jsonl_mapping(train_jsonl) if osp.exists(train_jsonl) else {}
+
+    val_map = {}
+    if osp.exists(valq_jsonl): val_map.update(load_jsonl_mapping(valq_jsonl))
+    if osp.exists(valg_jsonl): val_map.update(load_jsonl_mapping(valg_jsonl))
+
+    test_map = {}
+    if osp.exists(testq_jsonl): test_map.update(load_jsonl_mapping(testq_jsonl))
+    if osp.exists(testg_jsonl): test_map.update(load_jsonl_mapping(testg_jsonl))
+
+    train_set = ImageDataset(dataset.train, train_transforms,jsonl_map=train_map)
+    train_set_normal = ImageDataset(dataset.train, val_transforms,jsonl_map=train_map)
     num_classes = dataset.num_train_pids
     cam_num = dataset.num_train_cams
     view_num = dataset.num_train_vids
@@ -98,14 +119,14 @@ def make_dataloader(cfg):
     else:
         print('unsupported sampler! expected softmax or triplet but got {}'.format(cfg.SAMPLER))
 
-    val_set = ImageDataset(dataset.val_query + dataset.gallery, val_transforms)
+    val_set = ImageDataset(dataset.val_query + dataset.gallery, val_transforms, jsonl_map=val_map)
 
     val_loader = DataLoader(
         val_set, batch_size=cfg.TEST.IMS_PER_BATCH, shuffle=False, num_workers=num_workers,
         collate_fn=val_collate_fn
     )
 
-    test_set = ImageDataset(dataset.test_query + dataset.gallery, val_transforms)
+    test_set = ImageDataset(dataset.test_query + dataset.gallery, val_transforms, jsonl_map=test_map)
 
     test_loader = DataLoader(
         test_set, batch_size=cfg.TEST.IMS_PER_BATCH, shuffle=False, num_workers=num_workers,

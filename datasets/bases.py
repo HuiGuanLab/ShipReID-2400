@@ -1,6 +1,7 @@
 from PIL import Image, ImageFile
 
 from torch.utils.data import Dataset
+from utils.ship_text import annotation_to_texts
 import os.path as osp
 import random
 import torch
@@ -68,9 +69,10 @@ class BaseImageDataset(BaseDataset):
 
 
 class ImageDataset(Dataset):
-    def __init__(self, dataset, transform=None):
+    def __init__(self, dataset, transform=None, jsonl_map=None):
         self.dataset = dataset
         self.transform = transform
+        self.jsonl_map = jsonl_map or {}
 
     def __len__(self):
         return len(self.dataset)
@@ -82,4 +84,9 @@ class ImageDataset(Dataset):
         if self.transform is not None:
             img = self.transform(img)
 
-        return img, pid, camid, trackid, img_path.split('/')[-1]
+        obj = self.jsonl_map.get(img_path, None)
+        texts="A photo of a X X X X ship."
+        #print(texts)
+
+        # pid人物身份标识符、camid哪个摄像头拍摄的、trackid跟踪ID，可能用于跟踪一个行人在视频中的位置，或者它可能代表一个标识符，用于区分同一类物体
+        return img, texts, pid, camid, trackid, img_path.split('/')[-1]

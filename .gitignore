@@ -7,3 +7,30 @@
 /utils/__pycache__
 /model/backbones/__pycache__
 /model/clip/__pycache__
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# macOS and editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Local credentials
+.env
+.env.*
+!.env.example
+
+# Training outputs and downloaded model weights
+outputs/
+logs/
+runs/
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+*.log

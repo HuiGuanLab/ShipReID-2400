@@ -1,6 +1,11 @@
+# model/clip/model.py
+# (Full file with ONLY the necessary fix for text branch: Transformer.forward unpacks (x, attn) tuples.
+#  Visual branch behavior remains unchanged because VisionTransformer iterates blocks manually.)
+
 from collections import OrderedDict
 from typing import Tuple, Union
 
+import math
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -60,12 +65,13 @@ class AttentionPool2d(nn.Module):
         self.k_proj = nn.Linear(embed_dim, embed_dim)
         self.q_proj = nn.Linear(embed_dim, embed_dim)
         self.v_proj = nn.Linear(embed_dim, embed_dim)
-        self.c_proj = nn.Linear(embed_dim, output_dim or embed_dim) 
+        self.c_proj = nn.Linear(embed_dim, output_dim or embed_dim)
         self.num_heads = num_heads
 
-    def forward(self, x): 
-        x = x.reshape(x.shape[0], x.shape[1], x.shape[2] * x.shape[3]).permute(2, 0, 1)  # NCHW -> (HW)NC  #32,2048,7,7 ->49, 32, 2048
-        x = torch.cat([x.mean(dim=0, keepdim=True), x], dim=0)  # (HW+1)NC  50,32,2048
+    def forward(self, x):
+        # NCHW -> (HW)NC
+        x = x.reshape(x.shape[0], x.shape[1], x.shape[2] * x.shape[3]).permute(2, 0, 1)
+        x = torch.cat([x.mean(dim=0, keepdim=True), x], dim=0)  # (HW+1)NC
         x = x + self.positional_embedding[:, None, :].to(x.dtype)  # (HW+1)NC
         x, _ = F.multi_head_attention_forward(
             query=x, key=x, value=x,
@@ -85,9 +91,9 @@ class AttentionPool2d(nn.Module):
             use_separate_proj_weight=True,
             training=self.training,
             need_weights=False
-        ) 
+        )
+        return x
 
-        return x 
 
 class ModifiedResNet(nn.Module):
     """
@@ -113,39 +119,37 @@ class ModifiedResNet(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
         # residual layers
-        self._inplanes = width  # this is a *mutable* variable used during construction
+        self._inplanes = width  # mutable during construction
         self.layer1 = self._make_layer(width, layers[0])
         self.layer2 = self._make_layer(width * 2, layers[1], stride=2)
         self.layer3 = self._make_layer(width * 4, layers[2], stride=2)
-        self.layer4 = self._make_layer(width * 8, layers[3], stride=1) 
-        embed_dim = width * 32  # the ResNet feature dimension
+        self.layer4 = self._make_layer(width * 8, layers[3], stride=1)
+
+        embed_dim = width * 32  # ResNet feature dim
         self.attnpool = AttentionPool2d(input_resolution, embed_dim, heads, output_dim)
 
     def _make_layer(self, planes, blocks, stride=1):
         layers = [Bottleneck(self._inplanes, planes, stride)]
-
         self._inplanes = planes * Bottleneck.expansion
         for _ in range(1, blocks):
             layers.append(Bottleneck(self._inplanes, planes))
-
         return nn.Sequential(*layers)
 
-    def forward(self, x): 
-        def stem(x):
+    def forward(self, x):
+        def stem(x_):
             for conv, bn in [(self.conv1, self.bn1), (self.conv2, self.bn2), (self.conv3, self.bn3)]:
-                x = self.relu(bn(conv(x)))
-            x = self.avgpool(x)
-            return x
+                x_ = self.relu(bn(conv(x_)))
+            x_ = self.avgpool(x_)
+            return x_
 
-        x = x.type(self.conv1.weight.dtype) 
-        x = stem(x) 
-        x = self.layer1(x) 
-        x = self.layer2(x) 
-        x3 = self.layer3(x) 
-        x4 = self.layer4(x3) 
-        xproj = self.attnpool(x4) 
-
-        return x3, x4, xproj 
+        x = x.type(self.conv1.weight.dtype)
+        x = stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x3 = self.layer3(x)
+        x4 = self.layer4(x3)
+        xproj = self.attnpool(x4)
+        return x3, x4, xproj
 
 
 class LayerNorm(nn.LayerNorm):
@@ -165,7 +169,6 @@ class QuickGELU(nn.Module):
 class ResidualAttentionBlock(nn.Module):
     def __init__(self, d_model: int, n_head: int, attn_mask: torch.Tensor = None):
         super().__init__()
-
         self.attn = nn.MultiheadAttention(d_model, n_head)
         self.ln_1 = LayerNorm(d_model)
         self.mlp = nn.Sequential(OrderedDict([
@@ -178,7 +181,7 @@ class ResidualAttentionBlock(nn.Module):
         # self.attn_mask = attn_mask
 
     def attention(self, x: torch.Tensor, attn_mask: torch.Tensor = None):
-        # attn_mask = attn_mask.to(dtype=x.dtype, device=x.device) + 10 if attn_mask is not None else None
+        # keep mask additive/boolean behavior as in your original
         attn_mask = attn_mask.to(device=x.device) if attn_mask is not None else None
         return self.attn(x, x, x, need_weights=True, attn_mask=attn_mask)
 
@@ -196,14 +199,28 @@ class Transformer(nn.Module):
         super().__init__()
         self.width = width
         self.layers = layers
+        # NOTE: keep as Sequential to not affect VisionTransformer usage (it iterates .resblocks manually)
         self.resblocks = nn.Sequential(*[ResidualAttentionBlock(width, heads, attn_mask) for _ in range(layers)])
 
-    def forward(self, x: torch.Tensor):
-        return self.resblocks(x)
+    def forward(self, x: torch.Tensor, attn_mask: torch.Tensor = None):
+        """
+        IMPORTANT FIX:
+        ResidualAttentionBlock.forward returns (x, attn).
+        nn.Sequential cannot handle tuple outputs for subsequent modules.
+        For TEXT branch (CLIP.encode_text), we only need x, so we unwrap tuples here.
+
+        Visual branch is NOT affected because VisionTransformer.forward does NOT call this forward();
+        it iterates self.transformer.resblocks[...] manually and consumes (x, attn).
+        """
+        for blk in self.resblocks:
+            out = blk(x, attn_mask)
+            x = out[0] if isinstance(out, tuple) else out
+        return x
 
 
 class VisionTransformer(nn.Module):
-    def __init__(self, h_resolution: int, w_resolution: int, patch_size: int, stride_size: int, width: int, layers: int, heads: int, output_dim: int, M: int = None):
+    def __init__(self, h_resolution: int, w_resolution: int, patch_size: int, stride_size: int,
+                 width: int, layers: int, heads: int, output_dim: int, M: int = None):
         super().__init__()
         self.h_resolution = h_resolution
         self.w_resolution = w_resolution
@@ -211,61 +228,57 @@ class VisionTransformer(nn.Module):
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=width, kernel_size=patch_size, stride=stride_size, bias=False)
 
         scale = width ** -0.5
-    
+
         if M is not None:
             self.part_class_embedding = nn.Parameter(scale * torch.randn(1, M, width))
-            self.positional_embedding = nn.Parameter(scale * torch.randn(h_resolution*w_resolution + M, width))
-        else:            
+            self.positional_embedding = nn.Parameter(scale * torch.randn(h_resolution * w_resolution + M, width))
+        else:
             self.class_embedding = nn.Parameter(scale * torch.randn(width))
-            self.positional_embedding = nn.Parameter(scale * torch.randn(h_resolution*w_resolution + 1, width))
+            self.positional_embedding = nn.Parameter(scale * torch.randn(h_resolution * w_resolution + 1, width))
 
         self.ln_pre = LayerNorm(width)
-
         self.transformer = Transformer(width, layers, heads)
-
         self.ln_post = LayerNorm(width)
         self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
         self.M = M
 
-    def forward(self, x: torch.Tensor, cv_emb = None, attn_mask=None):
+    def forward(self, x: torch.Tensor, cv_emb=None, attn_mask=None):
         B = x.size(0)
-        x = self.conv1(x)  # shape = [*, width, grid, grid]
-        x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
-        x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
-        
+        x = self.conv1(x)  # [B, width, H, W]
+        x = x.reshape(x.shape[0], x.shape[1], -1)  # [B, width, HW]
+        x = x.permute(0, 2, 1)  # [B, HW, width]
+
         if self.M is not None:
             part_class_embedding = self.part_class_embedding.expand(B, self.M, -1)
-            x = torch.cat([part_class_embedding, x], dim=1)  # shape = [*, grid ** 2 + M, width]
+            x = torch.cat([part_class_embedding, x], dim=1)  # [B, HW+M, width]
         else:
             class_embedding = self.class_embedding.expand(B, 1, -1)
-            x = torch.cat([class_embedding, x], dim=1)  # shape = [*, grid ** 2 + 1, width]
-        if cv_emb != None: 
-            x[:,0] = x[:,0] + cv_emb
+            x = torch.cat([class_embedding, x], dim=1)  # [B, HW+1, width]
+
+        if cv_emb is not None:
+            x[:, 0] = x[:, 0] + cv_emb
+
         x = x + self.positional_embedding.to(x.dtype)
         x = self.ln_pre(x)
-        
         x = x.permute(1, 0, 2)  # NLD -> LND
 
         x11 = x
         attn = None
         for blk in self.transformer.resblocks[:11]:
-            x11, attn_ = blk(x11, attn_mask)  
+            x11, attn_ = blk(x11, attn_mask)
             if attn is None:
                 attn = attn_
             else:
                 attn = attn * attn_
-          
-        x12, last_attn = self.transformer.resblocks[11](x11, attn_mask) 
+
+        x12, last_attn = self.transformer.resblocks[11](x11, attn_mask)
         last_attn = attn * last_attn
 
-        x11 = x11.permute(1, 0, 2)  # LND -> NLD  
-        x12 = x12.permute(1, 0, 2)  # LND -> NLD  
+        x11 = x11.permute(1, 0, 2)  # LND -> NLD
+        x12 = x12.permute(1, 0, 2)  # LND -> NLD
 
-        x12 = self.ln_post(x12)  
-
-        if self.proj is not None:
-            xproj = x12 @ self.proj   
-
+        x12 = self.ln_post(x12)
+        xproj = x12 @ self.proj if self.proj is not None else x12
         return x11, x12, xproj, last_attn
 
 
@@ -284,10 +297,9 @@ class CLIP(nn.Module):
                  transformer_width: int,
                  transformer_heads: int,
                  transformer_layers: int,
-                 h_resolution: int, 
+                 h_resolution: int,
                  w_resolution: int,
-                 M: int = None
-                 ):
+                 M: int = None):
         super().__init__()
 
         self.context_length = context_length
@@ -298,23 +310,23 @@ class CLIP(nn.Module):
                 layers=vision_layers,
                 output_dim=embed_dim,
                 heads=vision_heads,
-                input_resolution=h_resolution*w_resolution,
+                input_resolution=h_resolution * w_resolution,
                 width=vision_width
             )
         else:
             vision_heads = vision_width // 64
             self.visual = VisionTransformer(
-                h_resolution = h_resolution,
-                w_resolution = w_resolution,
-                patch_size = vision_patch_size,
-                stride_size = vision_stride_size,
+                h_resolution=h_resolution,
+                w_resolution=w_resolution,
+                patch_size=vision_patch_size,
+                stride_size=vision_stride_size,
                 width=vision_width,
                 layers=vision_layers,
                 heads=vision_heads,
                 output_dim=embed_dim,
                 M=M
             )
-            
+
         self.transformer = Transformer(
             width=transformer_width,
             layers=transformer_layers,
@@ -362,11 +374,9 @@ class CLIP(nn.Module):
             nn.init.normal_(self.text_projection, std=self.transformer.width ** -0.5)
 
     def build_attention_mask(self):
-        # lazily create causal attention mask, with full attention between the vision tokens
-        # pytorch uses additive attention mask; fill with -inf
         mask = torch.empty(self.context_length, self.context_length)
         mask.fill_(float("-inf"))
-        mask.triu_(1)  # zero out the lower diagonal
+        mask.triu_(1)
         return mask
 
     @property
@@ -376,38 +386,31 @@ class CLIP(nn.Module):
     def encode_image(self, image):
         return self.visual(image.type(self.dtype))
 
-    def encode_text(self, text): 
-        x = self.token_embedding(text).type(self.dtype)  
-
-        x = x + self.positional_embedding.type(self.dtype) 
-        x = x.permute(1, 0, 2)  
-        x = self.transformer(x) 
-        x = x.permute(1, 0, 2)  
-        x = self.ln_final(x).type(self.dtype) 
-
-        x = x[torch.arange(x.shape[0]), text.argmax(dim=-1)] @ self.text_projection 
-
+    def encode_text(self, text):
+        x = self.token_embedding(text).type(self.dtype)
+        x = x + self.positional_embedding.type(self.dtype)
+        x = x.permute(1, 0, 2)
+        x = self.transformer(x)          # <- fixed Transformer.forward returns Tensor now
+        x = x.permute(1, 0, 2)
+        x = self.ln_final(x).type(self.dtype)
+        x = x[torch.arange(x.shape[0]), text.argmax(dim=-1)] @ self.text_projection
         return x
 
     def forward(self, image, text):
         image_features = self.encode_image(image)
         text_features = self.encode_text(text)
 
-        # normalized features
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
-        # cosine similarity as logits
         logit_scale = self.logit_scale.exp()
         logits_per_image = logit_scale * image_features @ text_features.t()
         logits_per_text = logit_scale * text_features @ image_features.t()
-
-        # shape = [global_batch_size, global_batch_size]
         return logits_per_image, logits_per_text
 
 
 def convert_weights(model: nn.Module):
-    """Convert applicable model parameters to fp16"""
+    """Convert applicable model parameters to fp16/float (as in your original)."""
 
     def _convert_weights_to_fp16(l):
         if isinstance(l, (nn.Conv1d, nn.Conv2d, nn.Linear)):
@@ -430,6 +433,31 @@ def convert_weights(model: nn.Module):
     model.apply(_convert_weights_to_fp16)
 
 
+def resize_pos_embed(posemb, posemb_new, hight, width, M=None):
+    print('Resized position embedding: %s to %s', posemb.shape, posemb_new.shape)
+
+    ntok_new = posemb_new.shape[0]
+
+    posemb_token, posemb_grid = posemb[:1], posemb[1:]
+    if M is not None:
+        ntok_new -= (M + 1)
+    else:
+        ntok_new -= 1
+
+    gs_old = int(math.sqrt(len(posemb_grid)))
+    print('Position embedding resize to height:{} width: {}'.format(hight, width))
+
+    posemb_grid = posemb_grid.reshape(1, gs_old, gs_old, -1).permute(0, 3, 1, 2)
+    posemb_grid = F.interpolate(posemb_grid, size=(hight, width), mode='bilinear')
+    posemb_grid = posemb_grid.permute(0, 2, 3, 1).reshape(1, hight * width, -1)
+
+    if M is not None:
+        posemb = torch.cat([*([posemb_token] * M), posemb_grid.squeeze()], dim=0)
+    else:
+        posemb = torch.cat([posemb_token, posemb_grid.squeeze()], dim=0)
+    return posemb
+
+
 def build_model(state_dict: dict, h_resolution: int, w_resolution: int, vision_stride_size: int, M: int = None):
     vit = "visual.proj" in state_dict
 
@@ -439,7 +467,7 @@ def build_model(state_dict: dict, h_resolution: int, w_resolution: int, vision_s
         vision_patch_size = state_dict["visual.conv1.weight"].shape[-1]
         grid_size = round((state_dict["visual.positional_embedding"].shape[0] - 1) ** 0.5)
         image_resolution = vision_patch_size * grid_size
-    else: #RN50
+    else:  # RN50
         counts: list = [len(set(k.split(".")[2] for k in state_dict if k.startswith(f"visual.layer{b}"))) for b in [1, 2, 3, 4]]
         vision_layers = tuple(counts)
         vision_width = state_dict["visual.layer1.0.conv1.weight"].shape[0]
@@ -449,11 +477,11 @@ def build_model(state_dict: dict, h_resolution: int, w_resolution: int, vision_s
         image_resolution = output_width * 32
 
     embed_dim = state_dict["text_projection"].shape[1]
-    context_length = state_dict["positional_embedding"].shape[0] #77 (77,512)
+    context_length = state_dict["positional_embedding"].shape[0]
     vocab_size = state_dict["token_embedding.weight"].shape[0]
     transformer_width = state_dict["ln_final.weight"].shape[0]
     transformer_heads = transformer_width // 64
-    transformer_layers = len(set(k.split(".")[2] for k in state_dict if k.startswith(f"transformer.resblocks")))
+    transformer_layers = len(set(k.split(".")[2] for k in state_dict if k.startswith("transformer.resblocks")))
 
     model = CLIP(
         embed_dim,
@@ -461,46 +489,27 @@ def build_model(state_dict: dict, h_resolution: int, w_resolution: int, vision_s
         context_length, vocab_size, transformer_width, transformer_heads, transformer_layers,
         h_resolution, w_resolution, M
     )
+
     if vit:
-        state_dict["visual.positional_embedding"] = resize_pos_embed(state_dict["visual.positional_embedding"], model.visual.positional_embedding, h_resolution, w_resolution, M)
-    else: #RN50
-        state_dict["visual.attnpool.positional_embedding"] = resize_pos_embed(state_dict["visual.attnpool.positional_embedding"], model.visual.attnpool.positional_embedding, h_resolution, w_resolution)
-    
+        state_dict["visual.positional_embedding"] = resize_pos_embed(
+            state_dict["visual.positional_embedding"], model.visual.positional_embedding,
+            h_resolution, w_resolution, M
+        )
+    else:  # RN50
+        state_dict["visual.attnpool.positional_embedding"] = resize_pos_embed(
+            state_dict["visual.attnpool.positional_embedding"], model.visual.attnpool.positional_embedding,
+            h_resolution, w_resolution
+        )
+
     # part class embedding
     if M is not None:
-        state_dict['visual.part_class_embedding'] = state_dict['visual.class_embedding'].expand(1, M, -1)  
-        del state_dict['visual.class_embedding']  
-    
+        state_dict['visual.part_class_embedding'] = state_dict['visual.class_embedding'].expand(1, M, -1)
+        del state_dict['visual.class_embedding']
+
     for key in ["input_resolution", "context_length", "vocab_size"]:
         if key in state_dict:
             del state_dict[key]
-            
-    convert_weights(model)
 
+    convert_weights(model)
     model.load_state_dict(state_dict)
     return model.eval()
-
-import math
-def resize_pos_embed(posemb, posemb_new, hight, width, M=None):
-    # Rescale the grid of position embeddings when loading from state_dict. Adapted from
-    # https://github.com/google-research/vision_transformer/blob/00883dd691c63a6830751563748663526e811cee/vit_jax/checkpoint.py#L224
-    print('Resized position embedding: %s to %s', posemb.shape, posemb_new.shape)
-      
-    ntok_new = posemb_new.shape[0] #129,2048
-
-    posemb_token, posemb_grid = posemb[:1], posemb[1:]
-    if M is not None:
-        ntok_new -= (M + 1)
-    else:    
-        ntok_new -= 1
-
-    gs_old = int(math.sqrt(len(posemb_grid))) #14
-    print('Position embedding resize to height:{} width: {}'.format(hight, width))
-    posemb_grid = posemb_grid.reshape(1, gs_old, gs_old, -1).permute(0, 3, 1, 2) 
-    posemb_grid = F.interpolate(posemb_grid, size=(hight, width), mode='bilinear') 
-    posemb_grid = posemb_grid.permute(0, 2, 3, 1).reshape(1, hight * width, -1)
-    if M is not None:
-        posemb = torch.cat([*([posemb_token] * M), posemb_grid.squeeze()], dim=0)
-    else:
-        posemb = torch.cat([posemb_token, posemb_grid.squeeze()], dim=0)
-    return posemb
